@@ -1,0 +1,6 @@
+CREATE PROCEDURE GetUserByUsername
+    @Username NVARCHAR(50)
+AS
+BEGIN
+SELECT PASSWORD_HASH FROM meta_user WHERE NAME = @Username
+END

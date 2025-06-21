@@ -1,0 +1,11 @@
+server:
+  port: ":8080"
+
+database:
+  host: s_n/SQLEXPRESS
+  user: sa
+  password: 798246
+  name: eplus_work_Volga_3201
+
+security:
+  jwt_secret: supersecretkey
