@@ -45,24 +45,33 @@ func main() {
 	}
 	// Инициализация репозиториев
 	authRepo := repositories.NewAuthRepository(db)
-	//userRepo := repositories.NewUserRepository(db)
+	userRepo := repositories.NewUserRepository(db)
+	pharmacyRepo := repositories.NewPharmacyRepository(db)
+	productsRepo := repositories.NewProductRepository(db)
 
 	// Инициализация сервисов
 	authService := services.NewAuthService(authRepo, cfg.Security.JWTSecret)
-	//userService := services.NewUserService(userRepo)
+	userService := services.NewUserService(userRepo)
+	pharmacyService := services.NewPharmacyService(pharmacyRepo)
+	productService := services.NewProductService(productsRepo)
 
 	// Инициализация хендлеров
 	authHandler := handlers.NewAuthHandler(authService)
-	//userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService)
+	pharmacyHandler := handlers.NewPharmacyHandler(pharmacyService)
+	productHandler := handlers.NewProductHandler(productService)
 
 	// Роутинг
 	r := chi.NewRouter()
 
 	r.Post("/login", authHandler.Login)
+	r.Get("/users", userHandler.GetAllUsers)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware)
-
+		r.Get("/pharmacies", pharmacyHandler.GetPharmacies)
+		r.Get("/inactive-products", productHandler.GetInactiveStockProducts)
+		r.Get("/products-with-sales-speed", productHandler.GetProductStockWithSalesSpeed)
 	})
 
 	server := &http.Server{
