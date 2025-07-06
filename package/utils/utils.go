@@ -1,4 +1,4 @@
-package utils
+package localutils
 
 import (
 	"crypto/md5"

@@ -1,5 +1,13 @@
 package models
 
+// InactiveStockProduct представляет товар без движения более N дней
+// @Description Информация о товаре без движения
+// @Description - **Name**: Название товара
+// @Description - **Qty**: Остаток на складе
+// @Description - **PriceSal**: Цена продажи
+// @Description - **PriceProd**: Себестоимость
+// @Description - **DaysNoMovement**: Количество дней без движения
+// @Description - **BestBefore**: Срок годности (опционально)
 type InactiveStockProduct struct {
 	Name           string  `json:"name"`
 	Qty            float64 `json:"qty"`

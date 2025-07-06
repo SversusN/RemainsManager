@@ -2,7 +2,7 @@ package services
 
 import (
 	"RemainsManager/internal/repositories"
-	. "RemainsManager/package/utils"
+	"RemainsManager/package/utils"
 	"github.com/dgrijalva/jwt-go"
 	"time"
 )
@@ -18,7 +18,7 @@ func NewAuthService(repo *repositories.AuthRepository, secret string) *AuthServi
 
 func (s *AuthService) Authenticate(username, password string) (string, error) {
 	hashedPass, err := s.repo.GetUserByUsername(username)
-	if err != nil || hashedPass != HashSum(username, password) {
+	if err != nil || hashedPass != localutils.HashSum(username, password) {
 		return "", err
 	}
 

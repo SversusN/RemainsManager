@@ -16,6 +16,23 @@ func NewProductHandler(service *services.ProductService) *ProductHandler {
 	return &ProductHandler{service: service}
 }
 
+// GetInactiveStockProducts godoc
+//
+// @Summary      Получить неактивные товары
+// @Description  Возвращает список товаров, которые не продавались дольше N дней
+// @Tags         Products
+// @Accept       json
+// @Produce      json
+// @Param        contractor_id query string true "ID контрагента (GUID)"
+// @Param        days query integer false "Количество дней без движения" default(30)
+// @Param        page query integer false "Номер страницы" default(1)
+// @Param        limit query integer false "Размер страницы" default(50)
+// @Success      200 {object} models.InactiveStockProduct
+// @Failure      400 {object} map[string]string
+// @Failure      500 {object} map[string]string
+// @Failure		401	{object}	map[string]string
+// @Security     ApiKeyAuth
+// @Router       /api/inactive-products [get]
 func (h *ProductHandler) GetInactiveStockProducts(w http.ResponseWriter, r *http.Request) {
 	contractorID := r.URL.Query().Get("contractor_id")
 	daysStr := r.URL.Query().Get("days")

@@ -2,24 +2,44 @@ package main
 
 import (
 	"RemainsManager/internal/middleware"
+	swagger "github.com/swaggo/http-swagger"
 	"log"
 	"net/http"
 	"time"
 
+	"RemainsManager/config"
+	_ "RemainsManager/docs"
+	"RemainsManager/internal/handlers"
+	_ "RemainsManager/internal/middleware"
+	"RemainsManager/internal/repositories"
+	"RemainsManager/internal/services"
 	"database/sql"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/sqlserver"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/microsoft/go-mssqldb"
-
-	"RemainsManager/config"
-	"RemainsManager/internal/handlers"
-	_ "RemainsManager/internal/middleware"
-	"RemainsManager/internal/repositories"
-	"RemainsManager/internal/services"
 )
 
+// @title           REST API для управления остатками
+// @version         1.0
+// @description     API для работы с остатками, пользователями и контрагентами
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   API Support
+// @contact.url    http://example.com/support
+// @contact.email  support@example.com
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host      localhost:8080
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
+
+// @externalDocs.description  OpenAPI
 func main() {
 
 	cfg := config.LoadConfig("config.yaml")
@@ -61,7 +81,6 @@ func main() {
 	pharmacyHandler := handlers.NewPharmacyHandler(pharmacyService)
 	productHandler := handlers.NewProductHandler(productService)
 
-	// Роутинг
 	r := chi.NewRouter()
 
 	r.Post("/login", authHandler.Login)
@@ -72,6 +91,12 @@ func main() {
 		r.Get("/pharmacies", pharmacyHandler.GetPharmacies)
 		r.Get("/inactive-products", productHandler.GetInactiveStockProducts)
 		r.Get("/products-with-sales-speed", productHandler.GetProductStockWithSalesSpeed)
+	})
+	// Инициализация Swagger
+	r.Group(func(r chi.Router) {
+		r.Get("/swagger/*", swagger.Handler(
+			swagger.URL("http://localhost:8080/swagger/doc.json"),
+		))
 	})
 
 	server := &http.Server{
