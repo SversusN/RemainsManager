@@ -2,11 +2,12 @@ server:
   port: ":8080"
 
 database:
-  host: S_NSQLEXPRESS
+  host: .
   port: 1433
   user: sa
   password: 798246
-  name: eplus_work_Volga_3201
+  name: eplus_apteka_349_new
+  timeout: 15
 
 security:
   jwt_secret: supersecretkey

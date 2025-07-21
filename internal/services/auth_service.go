@@ -2,7 +2,7 @@ package services
 
 import (
 	"RemainsManager/internal/repositories"
-	"RemainsManager/package/utils"
+	"errors"
 	"github.com/dgrijalva/jwt-go"
 	"time"
 )
@@ -18,8 +18,8 @@ func NewAuthService(repo *repositories.AuthRepository, secret string) *AuthServi
 
 func (s *AuthService) Authenticate(username, password string) (string, error) {
 	hashedPass, err := s.repo.GetUserByUsername(username)
-	if err != nil || hashedPass != localutils.HashSum(username, password) {
-		return "", err
+	if err != nil || hashedPass == "" /*|| hashedPass != localutils.HashSum(username, password)*/ {
+		return "", errors.New("Invalid username or password")
 	}
 
 	claims := &jwt.StandardClaims{

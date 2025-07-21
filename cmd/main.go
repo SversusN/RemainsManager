@@ -2,13 +2,13 @@ package main
 
 import (
 	"RemainsManager/internal/middleware"
+	"context"
 	swagger "github.com/swaggo/http-swagger"
 	"log"
 	"net/http"
 	"time"
 
 	"RemainsManager/config"
-	_ "RemainsManager/docs"
 	"RemainsManager/internal/handlers"
 	_ "RemainsManager/internal/middleware"
 	"RemainsManager/internal/repositories"
@@ -49,7 +49,12 @@ func main() {
 		"@" + cfg.Database.Host +
 		"?database=" + cfg.Database.Name + "&encrypt=disable"
 	db, err := sql.Open("sqlserver", connString)
-	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Database.Timeout)*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		log.Fatalf("Database unreachable: %v", err)
+	}
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -64,11 +69,11 @@ func main() {
 		log.Printf("Migration failed:", err)
 	}
 	// Инициализация репозиториев
-	authRepo := repositories.NewAuthRepository(db)
-	userRepo := repositories.NewUserRepository(db)
-	pharmacyRepo := repositories.NewPharmacyRepository(db)
-	productsRepo := repositories.NewProductRepository(db)
-
+	authRepo := repositories.NewAuthRepository(cfg.Database.Timeout, db)
+	userRepo := repositories.NewUserRepository(cfg.Database.Timeout, db)
+	pharmacyRepo := repositories.NewPharmacyRepository(cfg.Database.Timeout, db)
+	productsRepo := repositories.NewProductRepository(cfg.Database.Timeout, db)
+	defer db.Close()
 	// Инициализация сервисов
 	authService := services.NewAuthService(authRepo, cfg.Security.JWTSecret)
 	userService := services.NewUserService(userRepo)
@@ -82,7 +87,7 @@ func main() {
 	productHandler := handlers.NewProductHandler(productService)
 
 	r := chi.NewRouter()
-
+	r.Use(middleware.EnableCORS)
 	r.Post("/login", authHandler.Login)
 	r.Get("/users", userHandler.GetAllUsers)
 
@@ -102,8 +107,8 @@ func main() {
 	server := &http.Server{
 		Addr:         cfg.Server.Port,
 		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
 	}
 
 	log.Printf("Server running on %s", cfg.Server.Port)

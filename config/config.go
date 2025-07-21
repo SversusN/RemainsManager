@@ -22,6 +22,7 @@ type DatabaseConfig struct {
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
 	Name     string `yaml:"name"`
+	Timeout  int    `yaml:"timeout"`
 }
 
 type SecurityConfig struct {

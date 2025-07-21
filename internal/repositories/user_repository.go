@@ -1,22 +1,27 @@
 package repositories
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"RemainsManager/internal/models"
 )
 
 type UserRepository struct {
-	db *sql.DB
+	db      *sql.DB
+	timeout int
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(timeout int, db *sql.DB) *UserRepository {
+	return &UserRepository{timeout: timeout, db: db}
 }
 
 func (r *UserRepository) GetAllUsers() ([]models.User, error) {
-	rows, err := r.db.Query("EXEC GetUsers")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
+	defer cancel()
+	rows, err := r.db.QueryContext(ctx, "EXEC GetUsers")
 	if err != nil {
 		return nil, fmt.Errorf("error executing stored procedure: %w", err)
 	}

@@ -1,22 +1,27 @@
 package repositories
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"RemainsManager/internal/models"
 )
 
 type ProductRepository struct {
-	db *sql.DB
+	db      *sql.DB
+	timeout int
 }
 
-func NewProductRepository(db *sql.DB) *ProductRepository {
-	return &ProductRepository{db: db}
+func NewProductRepository(timeout int, db *sql.DB) *ProductRepository {
+	return &ProductRepository{timeout: timeout, db: db}
 }
 
 func (r *ProductRepository) GetInactiveStockProducts(contractGlobalID string, days, page, limit int) ([]models.InactiveStockProduct, int, error) {
-	rows, err := r.db.Query("EXEC GetInactiveStockProducts @DAYS = @days, @CONTRACTOR = @contractor, @PAGE = @page, @LIMIT = @limit",
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
+	defer cancel()
+	rows, err := r.db.QueryContext(ctx, "EXEC GetInactiveStockProducts @DAYS = @days, @CONTRACTOR = @contractor, @PAGE = @page, @LIMIT = @limit",
 		sql.Named("days", days),
 		sql.Named("contractor", contractGlobalID),
 		sql.Named("page", page),

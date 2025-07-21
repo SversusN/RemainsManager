@@ -1,22 +1,28 @@
 package repositories
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"RemainsManager/internal/models"
 )
 
 type PharmacyRepository struct {
-	db *sql.DB
+	db      *sql.DB
+	timeout int
 }
 
-func NewPharmacyRepository(db *sql.DB) *PharmacyRepository {
-	return &PharmacyRepository{db: db}
+func NewPharmacyRepository(timeout int, db *sql.DB) *PharmacyRepository {
+	return &PharmacyRepository{timeout: timeout, db: db}
 }
 
 func (r *PharmacyRepository) GetPharmacies() ([]models.Pharmacy, error) {
-	rows, err := r.db.Query("EXEC GetPharmacies")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
+	defer cancel()
+	rows, err := r.db.QueryContext(ctx, "EXEC GetPharmacies")
 	if err != nil {
 		return nil, fmt.Errorf("error executing stored procedure: %w", err)
 	}

@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/golang-migrate/migrate/v4 v4.18.3
 	github.com/microsoft/go-mssqldb v1.0.0
+	github.com/swaggo/http-swagger v1.3.4
 	golang.org/x/text v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -29,14 +30,11 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
-	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/swaggo/files v0.0.0-20220610200504-28940afbdbfe // indirect
-	github.com/swaggo/http-swagger v1.3.4 // indirect
 	github.com/swaggo/swag v1.8.1 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
