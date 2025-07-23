@@ -42,6 +42,7 @@ AS
 BEGIN
     SELECT
         c.ID_CONTRACTOR_GLOBAL,
+        c.NAME,
         c.ADDRESS,
         c.PHONE,
         c.INN
@@ -78,7 +79,8 @@ BEGIN
                               PRICE_SAL MONEY,
                               PRICE_PROD MONEY,
                               DAYS_NO_MOVEMENT INT,
-                              BEST_BEFORE DATE
+                              BEST_BEFORE DATE,
+                              ID_GOODS_GLOBAL UNIQUEIDENTIFIER
     );
 
     INSERT INTO #Results
@@ -88,7 +90,8 @@ BEGIN
         MAX(L.PRICE_SAL) AS PRICE_SAL,
         MAX(L.PRICE_PROD) AS PRICE_PROD,
         DATEDIFF(DAY, lm_max.max_date, GETDATE()) AS DAYS_NO_MOVEMENT,
-        isnull(CAST(S.BEST_BEFORE AS DATE), getdate()) AS BEST_BEFORE
+        isnull(CAST(S.BEST_BEFORE AS DATE), getdate()) AS BEST_BEFORE,
+        G.ID_GOODS_GLOBAL
     FROM LOT L
              INNER JOIN STORE ST ON ST.ID_STORE = L.ID_STORE
              INNER JOIN CONTRACTOR C ON C.ID_CONTRACTOR = ST.ID_CONTRACTOR
@@ -150,13 +153,16 @@ EXEC sp_executesql N'
 CREATE PROCEDURE GetProductStockWithSalesSpeed
     @DAYS INT = 30,
     @CONTRACTOR UNIQUEIDENTIFIER,
-    @GOODS_ID BIGINT = NULL
+    @GOODS_ID UNIQUEIDENTIFIER = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
 
     SELECT
         G.NAME,
+        G.ID_GOODS_GLOBAL,
+        C.NAME,
+        C.ID_CONTRACTOR_GLOBAL,
         SUM(L.QUANTITY_REM) AS QTY,
         MAX(L.PRICE_SAL) AS PRICE_SAL,
         MAX(L.PRICE_PROD) AS PRICE_PROD,
@@ -167,6 +173,7 @@ BEGIN
     FROM LOT L
              INNER JOIN STORE ST ON ST.ID_STORE = L.ID_STORE
              INNER JOIN CONTRACTOR C ON C.ID_CONTRACTOR = ST.ID_CONTRACTOR
+             INNER JOIN contractor_routes cr ON cr.id_contractor=c.ID_CONTRACTOR_GLOBAL
              INNER JOIN GOODS G ON G.ID_GOODS = L.ID_GOODS
              LEFT JOIN SERIES S ON S.ID_SERIES = L.ID_SERIES
              LEFT JOIN (
@@ -181,8 +188,8 @@ BEGIN
         GROUP BY L2.ID_GOODS, CAST(LM.DATE_OP AS DATE)
     ) AS sales ON sales.ID_GOODS = L.ID_GOODS
     WHERE L.QUANTITY_REM > 0
-      AND (C.ID_CONTRACTOR_GLOBAL = @CONTRACTOR OR @CONTRACTOR IS NULL)
-      AND (@GOODS_ID IS NULL OR G.ID_GOODS = @GOODS_ID)
-    GROUP BY G.NAME, S.BEST_BEFORE
+      AND (cr.id_contractor_parent = @CONTRACTOR OR @CONTRACTOR IS NULL)
+      AND (@GOODS_ID IS NULL OR G.ID_GOODS_GLOBAL = @GOODS_ID)
+    GROUP BY G.NAME, S.BEST_BEFORE, G.ID_GOODS_GLOBAL, C.NAME, C.ID_CONTRACTOR_GLOBAL
     ORDER BY G.NAME;
 END'

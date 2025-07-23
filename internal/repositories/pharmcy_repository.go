@@ -31,7 +31,7 @@ func (r *PharmacyRepository) GetPharmacies() ([]models.Pharmacy, error) {
 	var pharmacies []models.Pharmacy
 	for rows.Next() {
 		var p models.Pharmacy
-		err := rows.Scan(&p.Name, &p.Address, &p.Phone, &p.INN)
+		err := rows.Scan(&p.ID_CONTRACTOR_GLOBAL, &p.Name, &p.Address, &p.Phone, &p.INN)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}

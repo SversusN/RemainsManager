@@ -63,11 +63,18 @@ func (r *ProductRepository) GetProductStockWithSalesSpeed(contractGlobalID strin
 	var rows *sql.Rows
 	var err error
 
-	if goodsID == nil || *goodsID == 0 {
-		rows, err = r.db.Query("EXEC GetProductStockWithSalesSpeed @DAYS = ?, @CONTRACTOR = ?", days, contractGlobalID)
-	} else {
-		rows, err = r.db.Query("EXEC GetProductStockWithSalesSpeed @DAYS = ?, @CONTRACTOR = ?, @GOODS_ID = ?", days, contractGlobalID, *goodsID)
+	query := "EXEC GetProductStockWithSalesSpeed @DAYS = @days, @CONTRACTOR = @contractor"
+	args := []interface{}{
+		sql.Named("days", days),
+		sql.Named("contractor", contractGlobalID),
 	}
+
+	if goodsID != nil && *goodsID != 0 {
+		query += ", @GOODS_ID = @goods_id"
+		args = append(args, sql.Named("goods_id", *goodsID))
+	}
+	
+	rows, err = r.db.Query(query, args...)
 
 	if err != nil {
 		return nil, fmt.Errorf("error executing stored procedure: %w", err)
@@ -77,7 +84,7 @@ func (r *ProductRepository) GetProductStockWithSalesSpeed(contractGlobalID strin
 	var products []models.ProductStockWithSalesSpeed
 	for rows.Next() {
 		var p models.ProductStockWithSalesSpeed
-		err := rows.Scan(&p.Name, &p.Qty, &p.PriceSal, &p.PriceProd, &p.BestBefore, &p.TotalSold, &p.SalesPerDay, &p.ActiveDays)
+		err := rows.Scan(&p.Name, &p.IdGoodsGlobal, &p.ContractorName, &p.IdContractorGlobal, &p.Qty, &p.PriceSal, &p.PriceProd, &p.BestBefore, &p.TotalSold, &p.SalesPerDay, &p.ActiveDays)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
