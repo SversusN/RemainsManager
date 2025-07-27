@@ -73,18 +73,21 @@ func main() {
 	userRepo := repositories.NewUserRepository(cfg.Database.Timeout, db)
 	pharmacyRepo := repositories.NewPharmacyRepository(cfg.Database.Timeout, db)
 	productsRepo := repositories.NewProductRepository(cfg.Database.Timeout, db)
+	routsRepo := repositories.NewRouteRepository(cfg.Database.Timeout, db)
 	defer db.Close()
 	// Инициализация сервисов
 	authService := services.NewAuthService(authRepo, cfg.Security.JWTSecret)
 	userService := services.NewUserService(userRepo)
 	pharmacyService := services.NewPharmacyService(pharmacyRepo)
 	productService := services.NewProductService(productsRepo)
+	routeService := services.NewRouteService(routsRepo)
 
 	// Инициализация хендлеров
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	pharmacyHandler := handlers.NewPharmacyHandler(pharmacyService)
 	productHandler := handlers.NewProductHandler(productService)
+	routeHandler := handlers.NewRouteHandler(routeService)
 
 	r := chi.NewRouter()
 	r.Use(middleware.EnableCORS)
@@ -96,6 +99,16 @@ func main() {
 		r.Get("/pharmacies", pharmacyHandler.GetPharmacies)
 		r.Get("/inactive-products", productHandler.GetInactiveStockProducts)
 		r.Get("/products-with-sales-speed", productHandler.GetProductStockWithSalesSpeed)
+
+		// Маршруты
+		r.Post("/routes", routeHandler.CreateRoute)
+		r.Get("/routes", routeHandler.GetRoutes)
+		r.Delete("/routes/{id}", routeHandler.DeleteRoute)
+
+		// Пункты маршрута
+		r.Post("/route-items", routeHandler.AddRouteItem)
+		r.Get("/route-items", routeHandler.GetRouteItems)
+		r.Delete("/route-items/{id}", routeHandler.DeleteRouteItem)
 	})
 	// Инициализация Swagger
 	r.Group(func(r chi.Router) {

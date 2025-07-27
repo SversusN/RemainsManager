@@ -1,4 +1,23 @@
 -- 000001_init_procedures.up.sql
+-- Таблица маршрутов
+CREATE TABLE ROUTE (
+                       ID_ROUTE BIGINT IDENTITY(1,1) PRIMARY KEY,
+                       NAME NVARCHAR(255) NOT NULL UNIQUE
+);
+
+-- Таблица пунктов маршрута
+CREATE TABLE ROUTE_ITEM (
+                            ID_ROUTE_ITEM BIGINT IDENTITY(1,1) PRIMARY KEY,
+                            ID_ROUTE BIGINT NOT NULL,
+                            ID_CONTRACTOR_GLOBAL UNIQUEIDENTIFIER NOT NULL,
+                            DISPLAY_ORDER INT NOT NULL DEFAULT 0,
+                            NAME NVARCHAR(255) NOT NULL,
+
+                            CONSTRAINT FK_ROUTE_ITEM_ROUTE FOREIGN KEY (ID_ROUTE) REFERENCES ROUTE(ID_ROUTE) ON DELETE CASCADE,
+                            CONSTRAINT UQ_ROUTE_ITEM_ORDER UNIQUE (ID_ROUTE, DISPLAY_ORDER)
+);
+
+
 IF OBJECT_ID('GetUserByUsername', 'P') IS NOT NULL
     DROP PROCEDURE GetUserByUsername;
 EXEC sp_executesql N'
