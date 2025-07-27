@@ -1,24 +1,26 @@
 package main
 
 import (
-	"RemainsManager/internal/middleware"
-	"context"
-	swagger "github.com/swaggo/http-swagger"
-	"log"
-	"net/http"
-	"time"
-
 	"RemainsManager/config"
 	"RemainsManager/internal/handlers"
-	_ "RemainsManager/internal/middleware"
+	"RemainsManager/internal/middleware"
 	"RemainsManager/internal/repositories"
 	"RemainsManager/internal/services"
+	"context"
 	"database/sql"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/sqlserver"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/microsoft/go-mssqldb"
+	swagger "github.com/swaggo/http-swagger"
 )
 
 // @title           REST API для управления остатками
@@ -41,40 +43,41 @@ import (
 
 // @externalDocs.description  OpenAPI
 func main() {
-
 	cfg := config.LoadConfig("config.yaml")
 
 	// Подключение к БД
 	connString := "sqlserver://" + cfg.Database.User + ":" + cfg.Database.Password +
 		"@" + cfg.Database.Host +
 		"?database=" + cfg.Database.Name + "&encrypt=disable"
-	db, err := sql.Open("sqlserver", connString)
 
+	db, err := sql.Open("sqlserver", connString)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	// Проверка подключения с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Database.Timeout)*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("Database unreachable: %v", err)
 	}
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
 
 	// Миграции
 	m, err := migrate.New("file://migrations", connString)
 	if err != nil {
-		log.Fatal("Migration failed:", err)
+		log.Fatalf("Migration failed: %v", err)
 	}
-	err = m.Up()
-	if err != nil && err != migrate.ErrNoChange {
-		log.Printf("Migration failed:", err)
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("Migration error: %v", err)
 	}
+
 	// Инициализация репозиториев
 	authRepo := repositories.NewAuthRepository(cfg.Database.Timeout, db)
 	userRepo := repositories.NewUserRepository(cfg.Database.Timeout, db)
 	pharmacyRepo := repositories.NewPharmacyRepository(cfg.Database.Timeout, db)
 	productsRepo := repositories.NewProductRepository(cfg.Database.Timeout, db)
 	routsRepo := repositories.NewRouteRepository(cfg.Database.Timeout, db)
-	defer db.Close()
+
 	// Инициализация сервисов
 	authService := services.NewAuthService(authRepo, cfg.Security.JWTSecret)
 	userService := services.NewUserService(userRepo)
@@ -89,11 +92,13 @@ func main() {
 	productHandler := handlers.NewProductHandler(productService)
 	routeHandler := handlers.NewRouteHandler(routeService)
 
+	// Роутер
 	r := chi.NewRouter()
 	r.Use(middleware.EnableCORS)
 	r.Post("/login", authHandler.Login)
 	r.Get("/users", userHandler.GetAllUsers)
 
+	// Защищённые маршруты
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware)
 		r.Get("/pharmacies", pharmacyHandler.GetPharmacies)
@@ -110,20 +115,54 @@ func main() {
 		r.Get("/route-items", routeHandler.GetRouteItems)
 		r.Delete("/route-items/{id}", routeHandler.DeleteRouteItem)
 	})
-	// Инициализация Swagger
+
+	// Swagger
 	r.Group(func(r chi.Router) {
 		r.Get("/swagger/*", swagger.Handler(
 			swagger.URL("http://localhost:8080/swagger/doc.json"),
 		))
 	})
 
+	// HTTP-сервер
 	server := &http.Server{
 		Addr:         cfg.Server.Port,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Server running on %s", cfg.Server.Port)
-	log.Fatal(server.ListenAndServe())
+	// Запуск сервера в отдельной горутине
+	go func() {
+		log.Printf("Server is running on %s", cfg.Server.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	// Канал для перехвата сигналов (Ctrl+C, SIGTERM)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	// Ожидаем сигнал остановки
+	<-stop
+	log.Println("Shutting down server gracefully...")
+
+	// Контекст для graceful shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Останавливаем HTTP-сервер
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced shutdown: %v", err)
+	} else {
+		log.Println("Server stopped gracefully")
+	}
+
+	// Закрываем соединение с БД
+	if err := db.Close(); err != nil {
+		log.Printf("Error closing database: %v", err)
+	} else {
+		log.Println("Database connection closed")
+	}
 }
