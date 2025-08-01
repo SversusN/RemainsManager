@@ -25,8 +25,9 @@ func (r *RouteRepository) CreateRoute(name string) (int64, error) {
 	err := r.db.QueryRowContext(ctx, `
         INSERT INTO ROUTE (NAME) 
         OUTPUT INSERTED.ID_ROUTE 
-        VALUES (@p1)`,
-		name).Scan(&id)
+        VALUES (@name)`,
+		sql.Named("name", name),
+	).Scan(&id)
 	return id, err
 }
 
@@ -60,12 +61,12 @@ func (r *RouteRepository) GetRoutes() ([]models.Route, error) {
 	return routes, nil
 }
 
-// DeleteRoute удаляет маршрут и все его пункты
+// DeleteRoute удаляет маршрут
 func (r *RouteRepository) DeleteRoute(id int64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
 	defer cancel()
 
-	_, err := r.db.ExecContext(ctx, "DELETE FROM ROUTE WHERE ID_ROUTE = ?", id)
+	_, err := r.db.ExecContext(ctx, "DELETE FROM ROUTE WHERE ID_ROUTE = @id", sql.Named("id", id))
 	return err
 }
 
@@ -78,8 +79,12 @@ func (r *RouteRepository) AddRouteItem(routeID int64, contractorGlobal string, o
 	err := r.db.QueryRowContext(ctx, `
         INSERT INTO ROUTE_ITEM (ID_ROUTE, ID_CONTRACTOR_GLOBAL, DISPLAY_ORDER, NAME)
         OUTPUT INSERTED.ID_ROUTE_ITEM
-        VALUES (@p1, @p2, @p3, @p4)`,
-		routeID, contractorGlobal, order, name).Scan(&id)
+        VALUES (@route_id, @contractor_global, @display_order, @name)`,
+		sql.Named("route_id", routeID),
+		sql.Named("contractor_global", contractorGlobal),
+		sql.Named("display_order", order),
+		sql.Named("name", name),
+	).Scan(&id)
 	return id, err
 }
 
@@ -91,8 +96,10 @@ func (r *RouteRepository) GetRouteItems(routeID int64) ([]models.RouteItem, erro
 	rows, err := r.db.QueryContext(ctx, `
         SELECT ID_ROUTE_ITEM, ID_ROUTE, ID_CONTRACTOR_GLOBAL, DISPLAY_ORDER, NAME
         FROM ROUTE_ITEM
-        WHERE ID_ROUTE = ?
-        ORDER BY DISPLAY_ORDER`, routeID)
+        WHERE ID_ROUTE = @route_id
+        ORDER BY DISPLAY_ORDER`,
+		sql.Named("route_id", routeID),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +126,6 @@ func (r *RouteRepository) DeleteRouteItem(id int64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
 	defer cancel()
 
-	_, err := r.db.ExecContext(ctx, "DELETE FROM ROUTE_ITEM WHERE ID_ROUTE_ITEM = ?", id)
+	_, err := r.db.ExecContext(ctx, "DELETE FROM ROUTE_ITEM WHERE ID_ROUTE_ITEM = @id", sql.Named("id", id))
 	return err
 }
