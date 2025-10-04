@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"RemainsManager/internal/models"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -97,5 +98,8 @@ func (h *ProductHandler) GetProductStockWithSalesSpeed(w http.ResponseWriter, r 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if products == nil {
+		products = make([]models.ProductStockWithSalesSpeed, 0)
+	}
 	json.NewEncoder(w).Encode(products)
 }
