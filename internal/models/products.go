@@ -15,6 +15,7 @@ type InactiveStockProduct struct {
 	PriceProd      float64 `json:"price_prod"`
 	DaysNoMovement int     `json:"days_no_movement"`
 	BestBefore     string  `json:"best_before,omitempty"`
+	IdGoodsGlobal  string  `json:"id_goods_global"`
 }
 
 type ProductStockWithSalesSpeed struct {

@@ -178,3 +178,56 @@ func (h *RouteHandler) DeleteRouteItem(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// UpdateRouteItems godoc
+// @Summary		Массовое обновление пунктов маршрута
+// @Description	Обновляет порядок (display_order) для списка пунктов маршрута
+// @Tags			routes
+// @Accept			json
+// @Produce		json
+// @Param			id		path		int						true	"ID маршрута"
+// @Param			request	body		UpdateRouteItemsRequest	true	"Массив пунктов"
+// @Success		200	{object}	map[string]string
+// @Failure		400	{object}	map[string]string
+// @Failure		500	{object}	map[string]string
+// @Security		ApiKeyAuth
+// @Router			/routes/{id}/items [put]
+func (h *RouteHandler) UpdateRouteItems(w http.ResponseWriter, r *http.Request) {
+	// Извлекаем ID маршрута из URL
+	idStr := chi.URLParam(r, "id")
+	routeID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid route ID", http.StatusBadRequest)
+		return
+	}
+
+	// Парсим тело запроса
+	var req models.UpdateRouteItemsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Items) == 0 {
+		http.Error(w, "No items provided", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что все пункты принадлежат этому маршруту
+	for _, item := range req.Items {
+		if item.RouteID != routeID {
+			http.Error(w, "Item does not belong to this route", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Выполняем обновление
+	if err := h.service.UpdateRouteItems(req.Items); err != nil {
+		http.Error(w, "Failed to update items: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Ответ
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}

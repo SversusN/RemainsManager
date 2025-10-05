@@ -4,6 +4,7 @@ import (
 	"RemainsManager/internal/models"
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -94,7 +95,7 @@ func (r *RouteRepository) GetRouteItems(routeID int64) ([]models.RouteItem, erro
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
-        SELECT ID_ROUTE_ITEM, ID_ROUTE, ID_CONTRACTOR_GLOBAL, DISPLAY_ORDER, NAME
+        SELECT ID_ROUTE_ITEM, ID_ROUTE, cast(ID_CONTRACTOR_GLOBAL as varchar(36)) as ID_CONTRACTOR_GLOBAL, DISPLAY_ORDER, NAME
         FROM ROUTE_ITEM
         WHERE ID_ROUTE = @route_id
         ORDER BY DISPLAY_ORDER`,
@@ -128,4 +129,43 @@ func (r *RouteRepository) DeleteRouteItem(id int64) error {
 
 	_, err := r.db.ExecContext(ctx, "DELETE FROM ROUTE_ITEM WHERE ID_ROUTE_ITEM = @id", sql.Named("id", id))
 	return err
+}
+
+// UpdateRouteItems массово обновляет пункты маршрута (внутри транзакции)
+func (r *RouteRepository) UpdateRouteItems(items []models.RouteItem) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
+
+	defer cancel()
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		UPDATE ROUTE_ITEM 
+		SET DISPLAY_ORDER = @display_order
+		WHERE ID_ROUTE_ITEM = @id
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, item := range items {
+		_, err := stmt.ExecContext(ctx,
+			sql.Named("display_order", item.DisplayOrder),
+			sql.Named("id", item.ID),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update item %d: %w", item.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }

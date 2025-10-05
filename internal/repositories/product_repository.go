@@ -18,15 +18,38 @@ func NewProductRepository(timeout int, db *sql.DB) *ProductRepository {
 	return &ProductRepository{timeout: timeout, db: db}
 }
 
-func (r *ProductRepository) GetInactiveStockProducts(contractGlobalID string, days, page, limit int) ([]models.InactiveStockProduct, int, error) {
+func (r *ProductRepository) GetInactiveStockProducts(contractGlobalID string, days, page, limit int, nameFilter *string) ([]models.InactiveStockProduct, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.timeout)*time.Second)
 	defer cancel()
-	rows, err := r.db.QueryContext(ctx, "EXEC GetInactiveStockProducts @DAYS = @days, @CONTRACTOR = @contractor, @PAGE = @page, @LIMIT = @limit",
-		sql.Named("days", days),
-		sql.Named("contractor", contractGlobalID),
-		sql.Named("page", page),
-		sql.Named("limit", limit),
-	)
+	var rows *sql.Rows
+	var err error
+	if nameFilter == nil || *nameFilter == "" {
+		rows, err = r.db.QueryContext(ctx, `
+			EXEC GetInactiveStockProducts 
+				@DAYS = @days, 
+				@CONTRACTOR = @contractor, 
+				@PAGE = @page, 
+				@LIMIT = @limit`,
+			sql.Named("days", days),
+			sql.Named("contractor", contractGlobalID),
+			sql.Named("page", page),
+			sql.Named("limit", limit),
+		)
+	} else {
+		rows, err = r.db.QueryContext(ctx, `
+			EXEC GetInactiveStockProducts 
+				@DAYS = @days, 
+				@CONTRACTOR = @contractor, 
+				@PAGE = @page, 
+				@LIMIT = @limit, 
+				@NAME = @name`,
+			sql.Named("days", days),
+			sql.Named("contractor", contractGlobalID),
+			sql.Named("page", page),
+			sql.Named("limit", limit),
+			sql.Named("name", *nameFilter),
+		)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("error executing stored procedure: %w", err)
 	}
@@ -35,7 +58,7 @@ func (r *ProductRepository) GetInactiveStockProducts(contractGlobalID string, da
 	var products []models.InactiveStockProduct
 	for rows.Next() {
 		var p models.InactiveStockProduct
-		err := rows.Scan(&p.Name, &p.Qty, &p.PriceSal, &p.PriceProd, &p.DaysNoMovement, &p.BestBefore)
+		err := rows.Scan(&p.Name, &p.Qty, &p.PriceSal, &p.PriceProd, &p.DaysNoMovement, &p.BestBefore, &p.IdGoodsGlobal)
 		if err != nil {
 			return nil, 0, fmt.Errorf("error scanning row: %w", err)
 		}
@@ -59,7 +82,7 @@ func (r *ProductRepository) GetInactiveStockProducts(contractGlobalID string, da
 	return products, totalCount, nil
 }
 
-func (r *ProductRepository) GetProductStockWithSalesSpeed(contractGlobalID string, days int, goodsID *int64) ([]models.ProductStockWithSalesSpeed, error) {
+func (r *ProductRepository) GetProductStockWithSalesSpeed(contractGlobalID string, days int, goodsID string) ([]models.ProductStockWithSalesSpeed, error) {
 	var rows *sql.Rows
 	var err error
 
@@ -69,11 +92,11 @@ func (r *ProductRepository) GetProductStockWithSalesSpeed(contractGlobalID strin
 		sql.Named("contractor", contractGlobalID),
 	}
 
-	if goodsID != nil && *goodsID != 0 {
+	if goodsID != "" {
 		query += ", @GOODS_ID = @goods_id"
-		args = append(args, sql.Named("goods_id", *goodsID))
+		args = append(args, sql.Named("goods_id", goodsID))
 	}
-	
+
 	rows, err = r.db.Query(query, args...)
 
 	if err != nil {

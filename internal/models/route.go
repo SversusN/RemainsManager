@@ -14,3 +14,8 @@ type RouteItem struct {
 	DisplayOrder     int    `json:"display_order"`
 	Name             string `json:"name"`
 }
+
+// Request structure for bulk update
+type UpdateRouteItemsRequest struct {
+	Items []RouteItem `json:"items"`
+}

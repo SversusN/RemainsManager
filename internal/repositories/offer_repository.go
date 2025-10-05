@@ -1,0 +1,298 @@
+package repositories
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"RemainsManager/internal/models"
+)
+
+type OfferRepository struct {
+	db      *sql.DB
+	timeout int
+}
+
+func NewOfferRepository(timeout int, db *sql.DB) *OfferRepository {
+	return &OfferRepository{db: db, timeout: timeout}
+}
+
+// GetOrCreateTodayOffer возвращает существующую или создаёт новую заявку на сегодня
+func (r *OfferRepository) GetOrCreateTodayOffer(ctx context.Context, fromID, fromName string) (*models.Offer, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	var offer models.Offer
+
+	err := r.db.QueryRowContext(ctx, `
+		SELECT ID_OFFER, NAME, ID_CONTRACTOR_GLOBAL_FROM, CREATED_AT
+		FROM OFFER
+		WHERE ID_CONTRACTOR_GLOBAL_FROM = @from_id
+		  AND CAST(CREATED_AT AS DATE) = CAST(GETDATE() AS DATE)
+	`, sql.Named("from_id", fromID)).Scan(&offer.ID, &offer.Name, &offer.IdContractorGlobalFrom, &offer.CreatedAt)
+
+	if err == nil {
+		// Заявка найдена — загружаем позиции
+		items, err := r.loadOfferItems(ctx, offer.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load offer items: %w", err)
+		}
+		offer.OfferItems = items
+		return &offer, nil
+	}
+
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Заявка не найдена — создаём новую
+	name := time.Now().Format("02.01.2006") + " - " + fromName
+
+	var newID int64
+	err = r.db.QueryRowContext(ctx, `
+		INSERT INTO OFFER (NAME, ID_CONTRACTOR_GLOBAL_FROM, CREATED_AT)
+		OUTPUT INSERTED.ID_OFFER
+		VALUES (@name, @from_id, GETDATE())
+	`, sql.Named("name", name), sql.Named("from_id", fromID)).Scan(&newID)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create offer: %w", err)
+	}
+
+	offer.ID = newID
+	offer.Name = name
+	offer.IdContractorGlobalFrom = fromID
+	offer.CreatedAt = time.Now()
+	offer.OfferItems = []models.OfferItem{}
+
+	return &offer, nil
+}
+
+// AddItems обновляет или добавляет позиции в заявку (объединяет по GOODS_ID)
+func (r *OfferRepository) AddItems(ctx context.Context, items []models.OfferItem) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, item := range items {
+		_, err := tx.ExecContext(ctx, `
+			IF EXISTS (
+				SELECT 1 FROM OFFER_ITEM 
+				WHERE ID_OFFER = @offer_id AND GOODS_ID = @goods_id AND ID_CONTRACTOR_GLOBAL_TO = @to_id
+			)
+				UPDATE OFFER_ITEM 
+				SET QUANTITY = @quantity
+				WHERE ID_OFFER = @offer_id AND GOODS_ID = @goods_id AND ID_CONTRACTOR_GLOBAL_TO = @to_id
+			ELSE
+				INSERT INTO OFFER_ITEM 
+				(ID_OFFER, ID_CONTRACTOR_GLOBAL_FROM, ID_CONTRACTOR_GLOBAL_TO, GOODS_ID, QUANTITY)
+				VALUES (@offer_id, @from_id, @to_id, @goods_id, @quantity)
+		`,
+			sql.Named("offer_id", item.OfferID),
+			sql.Named("goods_id", item.GoodsId),
+			sql.Named("quantity", item.Quantity),
+			sql.Named("from_id", item.IdContractorGlobalFrom),
+			sql.Named("to_id", item.IdContractorGlobalTo),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upsert item for goods_id=%s: %w", item.GoodsId, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// loadOfferItems загружает все позиции заявки
+func (r *OfferRepository) loadOfferItems(ctx context.Context, offerID int64) ([]models.OfferItem, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT ID_OFFER_ITEM, ID_CONTRACTOR_GLOBAL_FROM, ID_CONTRACTOR_GLOBAL_TO, GOODS_ID, QUANTITY
+		FROM OFFER_ITEM
+		WHERE ID_OFFER = @offer_id
+	`, sql.Named("offer_id", offerID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.OfferItem
+	for rows.Next() {
+		var i models.OfferItem
+		if err := rows.Scan(&i.ID, &i.IdContractorGlobalFrom, &i.IdContractorGlobalTo, &i.GoodsId, &i.Quantity); err != nil {
+			return nil, err
+		}
+		i.OfferID = offerID
+		items = append(items, i)
+	}
+	return items, nil
+}
+
+// GetOfferJournal возвращает журнал заявок с фильтрацией по диапазону дат
+// GetOfferJournal возвращает журнал заявок с фильтрацией по датам и контрагенту
+func (r *OfferRepository) GetOfferJournal(ctx context.Context, from, to time.Time, contractorGlobal *string) ([]models.OfferJournalItem, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	// Базовый запрос
+	query := `
+		SELECT 
+			o.ID_OFFER,
+			o.NAME AS mnemocode,
+			c.NAME AS contractor,
+			CAST(o.CREATED_AT AS DATE) AS created
+		FROM OFFER o
+		INNER JOIN CONTRACTOR c ON c.ID_CONTRACTOR_GLOBAL = o.ID_CONTRACTOR_GLOBAL_FROM
+		WHERE CAST(o.CREATED_AT AS DATE) BETWEEN @from AND @to
+	`
+
+	// Добавляем фильтр по контрагенту, если указан
+	if contractorGlobal != nil && *contractorGlobal != "" {
+		query += " AND o.ID_CONTRACTOR_GLOBAL_FROM = @contractor_global"
+	}
+
+	query += " ORDER BY o.CREATED_AT DESC"
+
+	// Подготавливаем параметры
+	var rows *sql.Rows
+	var err error
+
+	if contractorGlobal != nil && *contractorGlobal != "" {
+		rows, err = r.db.QueryContext(ctx, query,
+			sql.Named("from", from.Format("2006-01-02")),
+			sql.Named("to", to.Format("2006-01-02")),
+			sql.Named("contractor_global", *contractorGlobal),
+		)
+	} else {
+		rows, err = r.db.QueryContext(ctx, query,
+			sql.Named("from", from.Format("2006-01-02")),
+			sql.Named("to", to.Format("2006-01-02")),
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute journal query: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.OfferJournalItem
+	for rows.Next() {
+		var item models.OfferJournalItem
+		err := rows.Scan(&item.ID, &item.Mnemocode, &item.Contractor, &item.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return items, nil
+}
+
+// GetOfferDetails возвращает детали заявки по ID
+func (r *OfferRepository) GetOfferDetails(ctx context.Context, offerID int64) ([]models.OfferDetailItem, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT 
+			CONCAT(g.NAME, ' | ', p.NAME) AS goods_name,
+			c.NAME AS contractor_to,
+			oi.QUANTITY AS quantity,
+			oi.id_offer_item as itemId
+		FROM OFFER o
+		INNER JOIN OFFER_ITEM oi ON o.ID_OFFER = oi.ID_OFFER
+		INNER JOIN CONTRACTOR c ON c.ID_CONTRACTOR_GLOBAL = oi.ID_CONTRACTOR_GLOBAL_TO
+		INNER JOIN GOODS g ON g.ID_GOODS_GLOBAL = oi.GOODS_ID
+		INNER JOIN PRODUCER p ON p.ID_PRODUCER = g.ID_PRODUCER
+		WHERE o.ID_OFFER = @offer_id
+		ORDER BY g.NAME
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, sql.Named("offer_id", offerID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute details query: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.OfferDetailItem
+	for rows.Next() {
+		var item models.OfferDetailItem
+		err := rows.Scan(&item.GoodsName, &item.ContractorTo, &item.Quantity, &item.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan detail row: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return items, nil
+}
+
+// UpdateOfferItem обновляет количество позиции в заявке
+func (r *OfferRepository) UpdateOfferItem(ctx context.Context, id int64, quantity int) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE OFFER_ITEM 
+		SET QUANTITY = @quantity 
+		WHERE ID_OFFER_ITEM = @id`,
+		sql.Named("quantity", quantity),
+		sql.Named("id", id),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update offer item: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("offer item with id %d not found", id)
+	}
+
+	return nil
+}
+
+// DeleteOfferItem удаляет позицию из заявки по ID
+func (r *OfferRepository) DeleteOfferItem(ctx context.Context, id int64) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	result, err := r.db.ExecContext(ctx, `
+		DELETE FROM OFFER_ITEM 
+		WHERE ID_OFFER_ITEM = @id`,
+		sql.Named("id", id),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete offer item: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("offer item with id %d not found", id)
+	}
+
+	return nil
+}

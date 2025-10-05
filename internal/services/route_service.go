@@ -36,3 +36,7 @@ func (s *RouteService) GetRouteItems(routeID int64) ([]models.RouteItem, error) 
 func (s *RouteService) DeleteRouteItem(id int64) error {
 	return s.repo.DeleteRouteItem(id)
 }
+
+func (s *RouteService) UpdateRouteItems(items []models.RouteItem) error {
+	return s.repo.UpdateRouteItems(items)
+}

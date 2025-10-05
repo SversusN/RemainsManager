@@ -8,6 +8,7 @@ import (
 	"RemainsManager/internal/services"
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -77,6 +78,7 @@ func main() {
 	pharmacyRepo := repositories.NewPharmacyRepository(cfg.Database.Timeout, db)
 	productsRepo := repositories.NewProductRepository(cfg.Database.Timeout, db)
 	routsRepo := repositories.NewRouteRepository(cfg.Database.Timeout, db)
+	offerRepo := repositories.NewOfferRepository(cfg.Database.Timeout, db)
 
 	// Инициализация сервисов
 	authService := services.NewAuthService(authRepo, cfg.Security.JWTSecret)
@@ -84,6 +86,7 @@ func main() {
 	pharmacyService := services.NewPharmacyService(pharmacyRepo)
 	productService := services.NewProductService(productsRepo)
 	routeService := services.NewRouteService(routsRepo)
+	offerService := services.NewOfferService(offerRepo)
 
 	// Инициализация хендлеров
 	authHandler := handlers.NewAuthHandler(authService)
@@ -91,6 +94,7 @@ func main() {
 	pharmacyHandler := handlers.NewPharmacyHandler(pharmacyService)
 	productHandler := handlers.NewProductHandler(productService)
 	routeHandler := handlers.NewRouteHandler(routeService)
+	offerHandler := handlers.NewOfferHandler(offerService)
 
 	// Роутер
 	r := chi.NewRouter()
@@ -113,9 +117,20 @@ func main() {
 		// Пункты маршрута
 		r.Post("/route-items", routeHandler.AddRouteItem)
 		r.Get("/route-items", routeHandler.GetRouteItems)
+		//r.Get("/route-items/{id}", routeHandler.GetRouteItems)
 		r.Delete("/route-items/{id}", routeHandler.DeleteRouteItem)
-	})
+		r.Put("/routes/{id}/items", routeHandler.UpdateRouteItems)
 
+		//Заявки
+		r.Get("/offer", offerHandler.GetOrCreateOffer)
+		r.Post("/offer-items", offerHandler.AddOfferItems)
+
+		// Журнал и детали
+		r.Get("/offers/journal", offerHandler.GetOfferJournal)
+		r.Get("/offers/{id}/details", offerHandler.GetOfferDetails)
+		r.Put("/offer-items/{id}", offerHandler.UpdateOfferItem)
+		r.Delete("/offer-items/{id}", offerHandler.DeleteOfferItem)
+	})
 	// Swagger
 	r.Group(func(r chi.Router) {
 		r.Get("/swagger/*", swagger.Handler(
@@ -135,7 +150,7 @@ func main() {
 	// Запуск сервера в отдельной горутине
 	go func() {
 		log.Printf("Server is running on %s", cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Server failed to start: %v", err)
 		}
 	}()

@@ -85,6 +85,7 @@ EXEC sp_executesql N'CREATE PROCEDURE GetInactiveStockProducts
     @CONTRACTOR UNIQUEIDENTIFIER,
     @PAGE INT = 1,
     @LIMIT INT = 50
+    @NAME NVARCHAR(255) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -136,6 +137,7 @@ BEGIN
           AND LM.DATE_OP BETWEEN DATEADD(DAY, -@DAYS, GETDATE()) AND GETDATE()
           AND L1.ID_GOODS = L.ID_GOODS
     )
+    AND (@NAME IS NULL OR G.NAME LIKE ''%'' + @NAME + ''%'')
     GROUP BY G.NAME, lm_max.max_date, CAST(S.BEST_BEFORE AS DATE)
     ORDER BY G.NAME
     OFFSET @OFFSET ROWS
@@ -160,7 +162,7 @@ BEGIN
           AND LM.DATE_OP BETWEEN DATEADD(DAY, -@DAYS, GETDATE()) AND GETDATE()
           AND L1.ID_GOODS = L.ID_GOODS
     )
-
+     AND (@NAME IS NULL OR G.NAME LIKE ''%'' + @NAME + ''%'') 
     -- Сначала возвращаем данные
     SELECT * FROM #Results;
     SELECT * FROM #TotalCount;
@@ -212,3 +214,25 @@ BEGIN
     GROUP BY G.NAME, S.BEST_BEFORE, G.ID_GOODS_GLOBAL, C.NAME, C.ID_CONTRACTOR_GLOBAL
     ORDER BY G.NAME;
 END'
+
+
+-- Таблица заявок
+CREATE TABLE OFFER (
+                       ID_OFFER BIGINT IDENTITY(1,1) PRIMARY KEY,
+                       NAME NVARCHAR(255) NOT NULL,
+                       ID_CONTRACTOR_GLOBAL_FROM UNIQUEIDENTIFIER NOT NULL,
+                       CREATED_AT DATETIME2 DEFAULT GETDATE(),
+
+);
+
+-- Таблица позиций заявки
+CREATE TABLE OFFER_ITEM (
+                            ID_OFFER_ITEM BIGINT IDENTITY(1,1) PRIMARY KEY,
+                            ID_OFFER BIGINT NOT NULL,
+                            ID_CONTRACTOR_GLOBAL_FROM UNIQUEIDENTIFIER NOT NULL,
+                            ID_CONTRACTOR_GLOBAL_TO UNIQUEIDENTIFIER NOT NULL,
+                            GOODS_ID NVARCHAR(50) NOT NULL,
+                            QUANTITY INT NOT NULL,
+
+                            CONSTRAINT FK_OFFER_ITEM_OFFER FOREIGN KEY (ID_OFFER) REFERENCES OFFER(ID_OFFER) ON DELETE CASCADE
+);
