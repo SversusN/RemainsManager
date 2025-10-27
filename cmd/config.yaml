@@ -6,8 +6,8 @@ database:
   port: 1433
   user: sa
   password: 798246
-  name: eplus_apteka_349_new
-  timeout: 15
+  name: EF_RST_10000
+  timeout: 60
 
 security:
   jwt_secret: supersecretkey

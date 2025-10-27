@@ -9,13 +9,17 @@ package models
 // @Description - **DaysNoMovement**: Количество дней без движения
 // @Description - **BestBefore**: Срок годности (опционально)
 type InactiveStockProduct struct {
-	Name           string  `json:"name"`
-	Qty            float64 `json:"qty"`
-	PriceSal       float64 `json:"price_sal"`
-	PriceProd      float64 `json:"price_prod"`
-	DaysNoMovement int     `json:"days_no_movement"`
-	BestBefore     string  `json:"best_before,omitempty"`
-	IdGoodsGlobal  string  `json:"id_goods_global"`
+	Name            string  `json:"name"`
+	IdLotGlobal     string  `json:"id_lot_global"`
+	LotName         string  `json:"lot_name"`
+	Qty             float64 `json:"qty"`
+	PriceSal        float64 `json:"price_sal"`
+	PriceProd       float64 `json:"price_prod"`
+	DaysNoMovement  int     `json:"days_no_movement"`
+	BestBefore      string  `json:"best_before,omitempty"`
+	IdGoodsGlobal   string  `json:"id_goods_global"`
+	NoMovement      bool    `json:"no_movement"`
+	InternalBarcode string  `json:"internal_barcode"`
 }
 
 type ProductStockWithSalesSpeed struct {

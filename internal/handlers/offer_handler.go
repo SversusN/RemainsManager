@@ -5,6 +5,7 @@ import (
 	"RemainsManager/internal/services"
 	"encoding/json"
 	"github.com/go-chi/chi/v5"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,11 +13,18 @@ import (
 )
 
 type OfferHandler struct {
-	service *services.OfferService
+	service               *services.OfferService
+	autoDistributeService *services.AutoDistributeService
 }
 
-func NewOfferHandler(service *services.OfferService) *OfferHandler {
-	return &OfferHandler{service: service}
+func NewOfferHandler(
+	service *services.OfferService,
+	autoDistributeService *services.AutoDistributeService,
+) *OfferHandler {
+	return &OfferHandler{
+		service:               service,
+		autoDistributeService: autoDistributeService,
+	}
 }
 
 // GetOrCreateOffer godoc
@@ -258,4 +266,136 @@ func (h *OfferHandler) DeleteOfferItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// MarkOfferAsSent godoc
+// @Summary		Отметить заявку как отправленную
+// @Description	Меняет статус заявки на "отправлено" (1)
+// @Tags			offers
+// @Success		200	{object}	map[string]string
+// @Failure		400	{object}	map[string]string
+// @Failure		404	{object}	map[string]string
+// @Failure		500	{object}	map[string]string
+// @Security		ApiKeyAuth
+// @Router			/offers/{id}/send [put]
+func (h *OfferHandler) MarkOfferAsSent(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid offer ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.MarkAsSent(r.Context(), id); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, "Offer not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to mark as sent: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+}
+
+// DeleteOffer godoc
+// @Summary		Пометить заявку как удалённую
+// @Description	Логическое удаление: меняет статус на "удалена" (4)
+// @Tags			offers
+// @Success		200	{object}	map[string]string
+// @Failure		400	{object}	map[string]string
+// @Failure		404	{object}	map[string]string
+// @Failure		500	{object}	map[string]string
+// @Security		ApiKeyAuth
+// @Router			/offers/{id} [delete]
+func (h *OfferHandler) DeleteOffer(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid offer ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.DeleteOffer(r.Context(), id); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, "Offer not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to delete offer: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// ProcessOffer godoc
+// @Summary		Обработать заявку и создать межфирменные перемещения
+// @Description	Генерирует и сохраняет документы перемещения на основе заявки
+// @Tags			offers
+// @Success		200	{object}	map[string]string
+// @Failure		400	{object}	map[string]string
+// @Failure		404	{object}	map[string]string
+// @Failure		500	{object}	map[string]string
+// @Security		ApiKeyAuth
+// @Router			/offers/{id}/process [post]
+func (h *OfferHandler) ProcessOffer(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid offer ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.ProcessOffer(r.Context(), id); err != nil {
+		log.Printf("Failed to process offer %d: %v", id, err)
+		http.Error(w, "Failed to process offer: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "processed"})
+}
+
+// AutoDistribute godoc
+// @Summary		Автоматически сформировать заявку по скорости продаж
+// @Description	Распределяет неактивные товары по контрагентам с наибольшей скоростью продаж
+// @Tags			offers
+// @Accept			json
+// @Produce		json
+// @Param			body	body		AutoDistributeRequest	true	"Параметры распределения"
+// @Success		200	{object}	map[string]string
+// @Failure		400	{object}	map[string]string
+// @Failure		500	{object}	map[string]string
+// @Security		ApiKeyAuth
+// @Router			/offers/auto-distribute [post]
+func (h *OfferHandler) AutoDistribute(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ContractorGlobalFrom string `json:"contractor_global_from"`
+		Days                 int    `json:"days"` // дней без движения (по умолчанию 30)
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.ContractorGlobalFrom == "" {
+		http.Error(w, "contractor_global_from is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Days == 0 {
+		req.Days = 30
+	}
+
+	if err := h.autoDistributeService.Distribute(r.Context(), req.ContractorGlobalFrom, req.Days); err != nil {
+		log.Printf("Auto distribution failed: %v", err)
+		http.Error(w, "Failed to distribute: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

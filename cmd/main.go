@@ -79,6 +79,7 @@ func main() {
 	productsRepo := repositories.NewProductRepository(cfg.Database.Timeout, db)
 	routsRepo := repositories.NewRouteRepository(cfg.Database.Timeout, db)
 	offerRepo := repositories.NewOfferRepository(cfg.Database.Timeout, db)
+	reportsRepo := repositories.NewReportRepository(db)
 
 	// Инициализация сервисов
 	authService := services.NewAuthService(authRepo, cfg.Security.JWTSecret)
@@ -87,6 +88,8 @@ func main() {
 	productService := services.NewProductService(productsRepo)
 	routeService := services.NewRouteService(routsRepo)
 	offerService := services.NewOfferService(offerRepo)
+	autoDistributeService := services.NewAutoDistributeService(productService, offerRepo)
+	reportService := services.NewReportService(reportsRepo)
 
 	// Инициализация хендлеров
 	authHandler := handlers.NewAuthHandler(authService)
@@ -94,7 +97,8 @@ func main() {
 	pharmacyHandler := handlers.NewPharmacyHandler(pharmacyService)
 	productHandler := handlers.NewProductHandler(productService)
 	routeHandler := handlers.NewRouteHandler(routeService)
-	offerHandler := handlers.NewOfferHandler(offerService)
+	offerHandler := handlers.NewOfferHandler(offerService, autoDistributeService)
+	reportHandler := handlers.NewReportHandler(reportService)
 
 	// Роутер
 	r := chi.NewRouter()
@@ -108,6 +112,7 @@ func main() {
 		r.Get("/pharmacies", pharmacyHandler.GetPharmacies)
 		r.Get("/inactive-products", productHandler.GetInactiveStockProducts)
 		r.Get("/products-with-sales-speed", productHandler.GetProductStockWithSalesSpeed)
+		r.Get("/inactive-products/export", productHandler.ExportInactiveStockProductsExcel)
 
 		// Маршруты
 		r.Post("/routes", routeHandler.CreateRoute)
@@ -130,6 +135,14 @@ func main() {
 		r.Get("/offers/{id}/details", offerHandler.GetOfferDetails)
 		r.Put("/offer-items/{id}", offerHandler.UpdateOfferItem)
 		r.Delete("/offer-items/{id}", offerHandler.DeleteOfferItem)
+		r.Put("/offers/{id}/send", offerHandler.MarkOfferAsSent)
+		r.Delete("/offers/{id}", offerHandler.DeleteOffer)
+		r.Post("/offers/{id}/process", offerHandler.ProcessOffer)
+		r.Post("/offers/auto-distribute", offerHandler.AutoDistribute)
+
+		//Отчет
+		r.Get("/report/offer", reportHandler.GenerateOfferReport)
+
 	})
 	// Swagger
 	r.Group(func(r chi.Router) {

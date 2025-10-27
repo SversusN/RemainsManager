@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"RemainsManager/internal/models"
@@ -51,9 +52,9 @@ func (r *OfferRepository) GetOrCreateTodayOffer(ctx context.Context, fromID, fro
 
 	var newID int64
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO OFFER (NAME, ID_CONTRACTOR_GLOBAL_FROM, CREATED_AT)
+		INSERT INTO OFFER (NAME, ID_CONTRACTOR_GLOBAL_FROM, CREATED_AT, STATUS)
 		OUTPUT INSERTED.ID_OFFER
-		VALUES (@name, @from_id, GETDATE())
+		VALUES (@name, @from_id, GETDATE(), 0)
 	`, sql.Named("name", name), sql.Named("from_id", fromID)).Scan(&newID)
 
 	if err != nil {
@@ -84,21 +85,22 @@ func (r *OfferRepository) AddItems(ctx context.Context, items []models.OfferItem
 		_, err := tx.ExecContext(ctx, `
 			IF EXISTS (
 				SELECT 1 FROM OFFER_ITEM 
-				WHERE ID_OFFER = @offer_id AND GOODS_ID = @goods_id AND ID_CONTRACTOR_GLOBAL_TO = @to_id
+				WHERE ID_OFFER = @offer_id AND GOODS_ID = @goods_id AND ID_CONTRACTOR_GLOBAL_TO = @to_id AND ID_LOT_GLOBAL = @ID_LOT_GLOBAL
 			)
 				UPDATE OFFER_ITEM 
 				SET QUANTITY = @quantity
-				WHERE ID_OFFER = @offer_id AND GOODS_ID = @goods_id AND ID_CONTRACTOR_GLOBAL_TO = @to_id
+				WHERE ID_OFFER = @offer_id AND GOODS_ID = @goods_id AND ID_CONTRACTOR_GLOBAL_TO = @to_id AND ID_LOT_GLOBAL = @ID_LOT_GLOBAL
 			ELSE
 				INSERT INTO OFFER_ITEM 
-				(ID_OFFER, ID_CONTRACTOR_GLOBAL_FROM, ID_CONTRACTOR_GLOBAL_TO, GOODS_ID, QUANTITY)
-				VALUES (@offer_id, @from_id, @to_id, @goods_id, @quantity)
+				(ID_OFFER, ID_CONTRACTOR_GLOBAL_FROM, ID_CONTRACTOR_GLOBAL_TO, GOODS_ID, QUANTITY, ID_LOT_GLOBAL)
+				VALUES (@offer_id, @from_id, @to_id, @goods_id, @quantity, @ID_LOT_GLOBAL)
 		`,
 			sql.Named("offer_id", item.OfferID),
 			sql.Named("goods_id", item.GoodsId),
 			sql.Named("quantity", item.Quantity),
 			sql.Named("from_id", item.IdContractorGlobalFrom),
 			sql.Named("to_id", item.IdContractorGlobalTo),
+			sql.Named("id_lot_global", item.IdLotGlobal),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to upsert item for goods_id=%s: %w", item.GoodsId, err)
@@ -148,7 +150,8 @@ func (r *OfferRepository) GetOfferJournal(ctx context.Context, from, to time.Tim
 			o.ID_OFFER,
 			o.NAME AS mnemocode,
 			c.NAME AS contractor,
-			CAST(o.CREATED_AT AS DATE) AS created
+			CAST(o.CREATED_AT AS DATE) AS created,
+			o.STATUS
 		FROM OFFER o
 		INNER JOIN CONTRACTOR c ON c.ID_CONTRACTOR_GLOBAL = o.ID_CONTRACTOR_GLOBAL_FROM
 		WHERE CAST(o.CREATED_AT AS DATE) BETWEEN @from AND @to
@@ -186,7 +189,7 @@ func (r *OfferRepository) GetOfferJournal(ctx context.Context, from, to time.Tim
 	var items []models.OfferJournalItem
 	for rows.Next() {
 		var item models.OfferJournalItem
-		err := rows.Scan(&item.ID, &item.Mnemocode, &item.Contractor, &item.CreatedAt)
+		err := rows.Scan(&item.ID, &item.Mnemocode, &item.Contractor, &item.CreatedAt, &item.Status)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -295,4 +298,128 @@ func (r *OfferRepository) DeleteOfferItem(ctx context.Context, id int64) error {
 	}
 
 	return nil
+
+}
+
+// UpdateOfferStatus обновляет статус заявки по ID
+func (r *OfferRepository) UpdateOfferStatus(ctx context.Context, offerID int64, status int) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE OFFER 
+		SET STATUS = @status 
+		WHERE ID_OFFER = @id`,
+		sql.Named("status", status),
+		sql.Named("id", offerID),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update offer status: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("offer with id %d not found", offerID)
+	}
+
+	return nil
+}
+
+// ProcessOffer вызывает usp_GenerateInterfirmMovingFromOffer и возвращает сырые строки
+func (r *OfferRepository) ProcessOffer(ctx context.Context, offerID int64) ([]models.InterfirmRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
+		EXEC usp_GenerateInterfirmMovingFromOffer @id_offer = @offer_id
+	`, sql.Named("offer_id", offerID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute usp_GenerateInterfirmMovingFromOffer: %w", err)
+	}
+	defer rows.Close()
+
+	var results []models.InterfirmRow
+	for rows.Next() {
+		var row models.InterfirmRow
+		err := rows.Scan(
+			&row.IDContractorGlobalTo,
+			&row.IDInterfirmMoving,
+			&row.IDInterfirmMovingGlobal,
+			&row.Mnemocode,
+			&row.IDStoreFromMain,
+			&row.IDStoreFromTransit,
+			&row.IDContractorTo,
+			&row.IDStoreToMain,
+			&row.IDStoreToTransit,
+			&row.Date,
+			&row.DocumentState,
+			&row.Comment,
+			&row.IDUser,
+			&row.IDUser2,
+			&row.SumSupplierHeader,
+			&row.SVatSupplierHeader,
+			&row.SumRetailHeader,
+			&row.SVatRetailHeader,
+			&row.GoodsSent,
+			&row.AuthNum,
+			&row.AuthValidPeriod,
+			&row.IDInterfirmMovingItem,
+			&row.IDInterfirmMovingItemGlobal,
+			&row.Quantity,
+			&row.IDLotFrom,
+			&row.IDLotTo,
+			&row.SumSupplier,
+			&row.SVatSupplier,
+			&row.PVatRetail,
+			&row.VatRetail,
+			&row.IsWeight,
+			&row.Kiz,   // ← NULL
+			&row.IsKiz, // ← 1 или 0
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return results, nil
+}
+
+// SaveInterfirmMoving вызывает USP_INTERFIRM_MOVING_SAVE с XML
+func (r *OfferRepository) SaveInterfirmMoving(ctx context.Context, xmlData string) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
+		EXEC USP_INTERFIRM_MOVING_SAVE @XML_DATA = @xml
+	`, sql.Named("xml", xmlData))
+	if err != nil {
+		return fmt.Errorf("failed to save interfirm moving: %w", err)
+	}
+
+	return nil
+}
+
+// getContractorName получает имя контрагента по его ID_CONTRACTOR_GLOBAL
+func (r *OfferRepository) GetContractorName(ctx context.Context, id string) string {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.timeout)*time.Second)
+	defer cancel()
+	var name string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT TOP 1 NAME FROM CONTRACTOR 
+		WHERE ID_CONTRACTOR_GLOBAL = @id
+	`, map[string]interface{}{"id": id}).Scan(&name)
+	if err != nil {
+		log.Printf("Failed to get contractor name for %s: %v", id, err)
+		return ""
+	}
+	return name
 }

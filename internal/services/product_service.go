@@ -21,6 +21,6 @@ func (s *ProductService) GetInactiveStockProducts(
 	return s.repo.GetInactiveStockProducts(contractGlobalID, days, page, limit, nameFilter)
 }
 
-func (s *ProductService) GetProductStockWithSalesSpeed(contractGlobalID string, days int, goodsID string) ([]models.ProductStockWithSalesSpeed, error) {
-	return s.repo.GetProductStockWithSalesSpeed(contractGlobalID, days, goodsID)
+func (s *ProductService) GetProductStockWithSalesSpeed(contractGlobalID string, days int, goodsID string, speedOrRout int) ([]models.ProductStockWithSalesSpeed, error) {
+	return s.repo.GetProductStockWithSalesSpeed(contractGlobalID, days, goodsID, speedOrRout)
 }

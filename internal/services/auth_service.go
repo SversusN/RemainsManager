@@ -1,10 +1,12 @@
 package services
 
 import (
-	"RemainsManager/internal/repositories"
 	"errors"
 	"github.com/dgrijalva/jwt-go"
 	"time"
+
+	"RemainsManager/internal/repositories"
+	"RemainsManager/package/utils"
 )
 
 type AuthService struct {
@@ -18,7 +20,7 @@ func NewAuthService(repo *repositories.AuthRepository, secret string) *AuthServi
 
 func (s *AuthService) Authenticate(username, password string) (string, error) {
 	hashedPass, err := s.repo.GetUserByUsername(username)
-	if err != nil || hashedPass == "" /*|| hashedPass != localutils.HashSum(username, password)*/ {
+	if err != nil || hashedPass == "" || hashedPass != localutils.HashSum(username, password) {
 		return "", errors.New("Invalid username or password")
 	}
 
